@@ -68,40 +68,16 @@ function sendNotification(conv) {
   const sender = parts[0]?.split(':')[0]?.trim() || 'Unknown';
   const message = parts[1] || text.slice(0, 100);
   
-  let payload;
-
-  if (webhookUrl.includes('discord.com')) {
-    payload = {
-      content: `**New Message from ${sender}**\n${message}\n\n${window.location.href}`
-    };
-  } else if (webhookUrl.includes('slack.com')) {
-    payload = {
-      text: `New Message from ${sender}`,
-      attachments: [{ text: message }]
-    };
-  } else if (webhookUrl.includes('/hooks/agent')) {
-    // OpenClaw webhook format
-    payload = {
-      message: `**New Facebook Marketplace Message**\n\n**From:** ${sender}\n**Message:** ${message}\n\n${window.location.href}`,
-      name: 'Marketplace-Alert',
-      wakeMode: 'now'
-    };
-  } else {
-    payload = {
+  // Send to background script (avoids CORS restrictions)
+  chrome.runtime.sendMessage({
+    action: 'sendWebhook',
+    data: {
       sender,
       message,
-      timestamp: new Date().toISOString(),
-      source: 'facebook_messenger',
-      url: window.location.href
-    };
-  }
-  
-  fetch(webhookUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  }).then(res => console.log('[FB Marketplace Notifier] Sent:', res.status))
-    .catch(err => console.error('[FB Marketplace Notifier] Error:', err.message));
+      url: window.location.href,
+      timestamp: new Date().toISOString()
+    }
+  });
 }
 
 chrome.runtime.onMessage.addListener((req) => {

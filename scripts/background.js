@@ -11,3 +11,61 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create('checkMessages', { periodInMinutes: 1 });
 });
+
+// Handle webhook sending from content script (avoids CORS restrictions)
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'sendWebhook') {
+    chrome.storage.sync.get(['webhookUrl', 'notificationType', 'enabled'], (result) => {
+      if (result.enabled === false || !result.webhookUrl) {
+        console.log('[FB Notifier] Disabled or no webhook URL');
+        return;
+      }
+
+      const webhookUrl = result.webhookUrl;
+      const type = result.notificationType || 'openclaw';
+      const { sender: msgSender, message, url, timestamp } = request.data;
+
+      let payload;
+
+      if (webhookUrl.includes('discord.com') || type === 'discord') {
+        payload = {
+          content: `**New Message from ${msgSender}**\n${message}\n\n${url}`
+        };
+      } else if (webhookUrl.includes('slack.com') || type === 'slack') {
+        payload = {
+          text: `New Message from ${msgSender}`,
+          attachments: [{ text: message }]
+        };
+      } else if (webhookUrl.includes('/hooks/agent') || type === 'openclaw') {
+        // OpenClaw webhook format
+        payload = {
+          message: `**New Facebook Marketplace Message**\n\n**From:** ${msgSender}\n**Message:** ${message}\n\n${url}`,
+          name: 'Marketplace-Alert',
+          wakeMode: 'now'
+        };
+      } else {
+        payload = {
+          sender: msgSender,
+          message,
+          timestamp,
+          source: 'facebook_messenger',
+          url
+        };
+      }
+
+      fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }).then(res => {
+        console.log('[FB Notifier] Sent:', res.status);
+        sendResponse({ success: res.ok });
+      }).catch(err => {
+        console.error('[FB Notifier] Error:', err.message);
+        sendResponse({ success: false, error: err.message });
+      });
+    });
+
+    return true; // Keep message channel open for async response
+  }
+});
