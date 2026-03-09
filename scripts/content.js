@@ -2,7 +2,7 @@ let webhookUrl = null;
 let notifiedMessages = new Set();
 let lastTitle = document.title;
 let lastScanTime = 0;
-const SCAN_COOLDOWN = 10000; // Only scan once every 10 seconds
+const SCAN_COOLDOWN = 5000; // Only scan once every 5 seconds
 
 chrome.storage.sync.get(['webhookUrl', 'enabled'], (result) => {
   if (result.enabled !== false && result.webhookUrl) {
@@ -24,7 +24,13 @@ function init() {
     new MutationObserver(() => onTitleChange()).observe(titleEl, { childList: true, characterData: true, subtree: true });
   }
   
-  // Removed automatic interval scanning - only scan on actual title changes
+  // Add back periodic scanning but less frequent (every 30 seconds)
+  setInterval(() => {
+    const now = Date.now();
+    if (now - lastScanTime > SCAN_COOLDOWN) {
+      scanForUnread();
+    }
+  }, 30000);
 }
 
 function onTitleChange() {
@@ -33,8 +39,11 @@ function onTitleChange() {
   
   console.log('[FB Marketplace Notifier] Title:', document.title);
   
-  // Only trigger if title shows actual new message indicator
-  if (/^\(\d+\)/.test(document.title)) {
+  // Trigger on (N) prefix OR "new message" text
+  const hasNewMessage = /^\(\d+\)/.test(document.title) || 
+                         document.title.toLowerCase().includes('new message');
+  
+  if (hasNewMessage) {
     console.log('[FB Marketplace Notifier] New message detected');
     const now = Date.now();
     if (now - lastScanTime > SCAN_COOLDOWN) {
