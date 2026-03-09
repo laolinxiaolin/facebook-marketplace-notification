@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>FB Marketplace Notifier Settings</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; max-width: 500px; }
+    label { display: block; margin-top: 15px; font-weight: bold; }
+    input, select { width: 100%; padding: 8px; margin-top: 5px; box-sizing: border-box; }
+    button { margin-top: 20px; padding: 10px 20px; background: #1877f2; color: white; border: none; cursor: pointer; }
+    button:hover { background: #166fe5; }
+    .status { margin-top: 15px; padding: 10px; display: none; }
+    .success { background: #d4edda; color: #155724; }
+    .error { background: #f8d7da; color: #721c24; }
+  </style>
+</head>
+<body>
+  <h2>FB Marketplace Notifier</h2>
+  
+  <label for="enabled">Enable notifications</label>
+  <input type="checkbox" id="enabled" checked>
+  
+  <label for="webhookUrl">Webhook URL</label>
+  <input type="text" id="webhookUrl" placeholder="https://your-server.com/webhook">
+  
+  <label for="notificationType">Notification type</label>
+  <select id="notificationType">
+    <option value="webhook">HTTP Webhook</option>
+    <option value="discord">Discord Webhook</option>
+    <option value="slack">Slack Webhook</option>
+    <option value="telegram">Telegram Bot</option>
+  </select>
+  
+  <button id="save">Save Settings</button>
+  <button id="test">Test Notification</button>
+  
+  <div id="status" class="status"></div>
+  
+  <script src="options.js"></script>
+</body>
+</html>
