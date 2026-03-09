@@ -39,7 +39,22 @@ document.getElementById('test').addEventListener('click', () => {
 
 function sendNotification(webhookUrl, data, type) {
   let url = webhookUrl;
+  let headers = { 'Content-Type': 'application/json' };
   let body;
+
+  // Extract token from URL if present (for OpenClaw)
+  try {
+    const urlObj = new URL(webhookUrl);
+    const tokenParam = urlObj.searchParams.get('token');
+    if (tokenParam) {
+      // Remove token from URL and add to Authorization header
+      urlObj.searchParams.delete('token');
+      url = urlObj.toString();
+      headers['Authorization'] = `Bearer ${tokenParam}`;
+    }
+  } catch (e) {
+    // Invalid URL, continue as-is
+  }
 
   switch (type) {
     case 'openclaw':
@@ -77,7 +92,7 @@ function sendNotification(webhookUrl, data, type) {
 
   fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body
   })
   .then(response => {
