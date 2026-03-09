@@ -25,6 +25,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       const type = result.notificationType || 'openclaw';
       const { sender: msgSender, message, url, timestamp } = request.data;
 
+      // Extract token from URL if present, then use header auth
+      let finalUrl = webhookUrl;
+      let headers = { 'Content-Type': 'application/json' };
+      
+      try {
+        const urlObj = new URL(webhookUrl);
+        const tokenParam = urlObj.searchParams.get('token');
+        if (tokenParam) {
+          // Remove token from URL and add to header
+          urlObj.searchParams.delete('token');
+          finalUrl = urlObj.toString();
+          headers['Authorization'] = `Bearer ${tokenParam}`;
+        }
+      } catch (e) {
+        console.error('[FB Notifier] Invalid URL:', e);
+      }
+
       let payload;
 
       if (webhookUrl.includes('discord.com') || type === 'discord') {
@@ -53,21 +70,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         };
       }
 
-      // Extract token from URL if present, then use header auth
-      let url = webhookUrl;
-      let headers = { 'Content-Type': 'application/json' };
-      
-      // Check if token is in URL query param
-      const urlObj = new URL(webhookUrl);
-      const tokenParam = urlObj.searchParams.get('token');
-      if (tokenParam) {
-        // Remove token from URL and add to header
-        urlObj.searchParams.delete('token');
-        url = urlObj.toString();
-        headers['Authorization'] = `Bearer ${tokenParam}`;
-      }
-
-      fetch(url, {
+      fetch(finalUrl, {
         method: 'POST',
         headers,
         body: JSON.stringify(payload)
