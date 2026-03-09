@@ -42,6 +42,13 @@ function sendNotification(webhookUrl, data, type) {
   let body;
 
   switch (type) {
+    case 'openclaw':
+      body = JSON.stringify({
+        message: `**New Facebook Marketplace Message**\n\n**From:** ${data.sender}\n**Message:** ${data.message}\n\n${data.url}`,
+        name: 'Marketplace-Alert',
+        wakeMode: 'now'
+      });
+      break;
     case 'discord':
       body = JSON.stringify({
         content: `**New Marketplace Message**\nFrom: ${data.sender}\nMessage: ${data.message}\nTime: ${data.timestamp}`

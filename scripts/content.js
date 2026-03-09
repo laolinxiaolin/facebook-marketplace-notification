@@ -69,7 +69,7 @@ function sendNotification(conv) {
   const message = parts[1] || text.slice(0, 100);
   
   let payload;
-  
+
   if (webhookUrl.includes('discord.com')) {
     payload = {
       content: `**New Message from ${sender}**\n${message}\n\n${window.location.href}`
@@ -78,6 +78,13 @@ function sendNotification(conv) {
     payload = {
       text: `New Message from ${sender}`,
       attachments: [{ text: message }]
+    };
+  } else if (webhookUrl.includes('/hooks/agent')) {
+    // OpenClaw webhook format
+    payload = {
+      message: `**New Facebook Marketplace Message**\n\n**From:** ${sender}\n**Message:** ${message}\n\n${window.location.href}`,
+      name: 'Marketplace-Alert',
+      wakeMode: 'now'
     };
   } else {
     payload = {
