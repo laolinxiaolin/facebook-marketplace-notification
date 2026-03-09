@@ -54,11 +54,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           attachments: [{ text: message }]
         };
       } else if (webhookUrl.includes('/hooks/agent') || type === 'openclaw') {
-        // OpenClaw webhook format
+        // OpenClaw webhook format (silent - no response triggered)
         payload = {
           message: `**New Facebook Marketplace Message**\n\n**From:** ${msgSender}\n**Message:** ${message}\n\n${url}`,
-          name: 'Marketplace-Alert',
-          wakeMode: 'now'
+          name: 'Marketplace-Alert'
+          // Removed wakeMode: 'now' to prevent automatic agent responses
         };
       } else {
         payload = {

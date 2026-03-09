@@ -60,8 +60,8 @@ function sendNotification(webhookUrl, data, type) {
     case 'openclaw':
       body = JSON.stringify({
         message: `**New Facebook Marketplace Message**\n\n**From:** ${data.sender}\n**Message:** ${data.message}\n\n${data.url}`,
-        name: 'Marketplace-Alert',
-        wakeMode: 'now'
+        name: 'Marketplace-Alert'
+        // Removed wakeMode: 'now' to prevent automatic agent responses
       });
       break;
     case 'discord':
