@@ -1,6 +1,8 @@
 let webhookUrl = null;
 let notifiedMessages = new Set();
 let lastTitle = document.title;
+let lastScanTime = 0;
+const SCAN_COOLDOWN = 10000; // Only scan once every 10 seconds
 
 chrome.storage.sync.get(['webhookUrl', 'enabled'], (result) => {
   if (result.enabled !== false && result.webhookUrl) {
@@ -22,7 +24,7 @@ function init() {
     new MutationObserver(() => onTitleChange()).observe(titleEl, { childList: true, characterData: true, subtree: true });
   }
   
-  setInterval(onTitleChange, 2000);
+  // Removed automatic interval scanning - only scan on actual title changes
 }
 
 function onTitleChange() {
@@ -31,9 +33,14 @@ function onTitleChange() {
   
   console.log('[FB Marketplace Notifier] Title:', document.title);
   
-  if (/^\(\d+\)/.test(document.title) || document.title.toLowerCase().includes('new message')) {
+  // Only trigger if title shows actual new message indicator
+  if (/^\(\d+\)/.test(document.title)) {
     console.log('[FB Marketplace Notifier] New message detected');
-    setTimeout(scanForUnread, 500);
+    const now = Date.now();
+    if (now - lastScanTime > SCAN_COOLDOWN) {
+      lastScanTime = now;
+      setTimeout(scanForUnread, 500);
+    }
   }
 }
 
@@ -41,12 +48,26 @@ function scanForUnread() {
   if (!webhookUrl) return;
   
   document.querySelectorAll('[role="gridcell"]').forEach(conv => {
-    const id = (conv.textContent || '').slice(0, 60);
+    // Create more stable ID using multiple factors
+    const links = conv.querySelectorAll('a[href*="/t/"]');
+    const link = links[0]?.href || '';
+    const textContent = conv.textContent || '';
+    
+    // Skip system messages (rate prompts, sold notifications, etc.)
+    if (textContent.toLowerCase().includes('rate each other') ||
+        textContent.toLowerCase().includes('you can now rate') ||
+        textContent.toLowerCase().includes('marked as sold') ||
+        textContent.toLowerCase().includes('group photo')) {
+      return;
+    }
+    
+    // Use link + first 100 chars as more stable ID
+    const id = link + '::' + textContent.slice(0, 100).replace(/\d+ minutes? ago/gi, '');
     
     if (notifiedMessages.has(id)) return;
     
     const isUnread = (() => {
-      const text = (conv.textContent || '').toLowerCase();
+      const text = textContent.toLowerCase();
       if (text.includes('unread')) return true;
       for (const span of conv.querySelectorAll('span[dir="auto"]')) {
         try { if (parseInt(getComputedStyle(span).fontWeight) >= 600) return true; } catch (e) {}
