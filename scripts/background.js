@@ -53,9 +53,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         };
       }
 
-      fetch(webhookUrl, {
+      // Extract token from URL if present, then use header auth
+      let url = webhookUrl;
+      let headers = { 'Content-Type': 'application/json' };
+      
+      // Check if token is in URL query param
+      const urlObj = new URL(webhookUrl);
+      const tokenParam = urlObj.searchParams.get('token');
+      if (tokenParam) {
+        // Remove token from URL and add to header
+        urlObj.searchParams.delete('token');
+        url = urlObj.toString();
+        headers['Authorization'] = `Bearer ${tokenParam}`;
+      }
+
+      fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(payload)
       }).then(res => {
         console.log('[FB Notifier] Sent:', res.status);
