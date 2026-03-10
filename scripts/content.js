@@ -153,7 +153,8 @@ chrome.runtime.onMessage.addListener((req) => {
     chrome.storage.sync.get(['webhookUrl', 'enabled'], (res) => {
       webhookUrl = res.webhookUrl;
       if (res.enabled !== false && webhookUrl) {
-        notifiedMessages.clear();
+        // Don't clear notifiedMessages - keep memory persistent to avoid duplicates
+        console.log('[FB Marketplace Notifier] Manual check - keeping message memory intact');
         scanForUnread();
       }
     });

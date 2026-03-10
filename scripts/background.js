@@ -1,15 +1,8 @@
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === 'checkMessages') {
-    chrome.tabs.query({ url: ['https://www.facebook.com/*', 'https://www.messenger.com/*'] }, (tabs) => {
-      tabs.forEach(tab => {
-        chrome.tabs.sendMessage(tab.id, { action: 'checkNow' });
-      });
-    });
-  }
-});
+// Removed periodic scanning - only use title-change detection to avoid duplicates
+// Title changes will trigger scans automatically when new messages arrive
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.alarms.create('checkMessages', { periodInMinutes: 1 });
+  console.log('[FB Notifier] Extension installed - using title-change detection only');
 });
 
 // Handle webhook sending from content script (avoids CORS restrictions)
