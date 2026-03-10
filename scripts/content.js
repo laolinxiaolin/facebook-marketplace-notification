@@ -2,7 +2,33 @@ let webhookUrl = null;
 let notifiedMessages = new Set();
 let lastTitle = document.title;
 let lastScanTime = 0;
-const SCAN_COOLDOWN = 5000; // Only scan once every 5 seconds
+let scanInProgress = false;
+const SCAN_COOLDOWN = 10000; // Only scan once every 10 seconds
+
+// Load previously notified messages from localStorage
+try {
+  const saved = localStorage.getItem('fb-notified-messages');
+  if (saved) {
+    notifiedMessages = new Set(JSON.parse(saved));
+    console.log('[FB Marketplace Notifier] Loaded', notifiedMessages.size, 'previously notified messages');
+  }
+} catch (e) {
+  console.error('[FB Marketplace Notifier] Error loading saved messages:', e);
+}
+
+// Save notified messages periodically
+setInterval(() => {
+  try {
+    localStorage.setItem('fb-notified-messages', JSON.stringify([...notifiedMessages]));
+  } catch (e) {
+    // Clear old messages if storage is full
+    const arr = [...notifiedMessages];
+    if (arr.length > 100) {
+      notifiedMessages = new Set(arr.slice(-50));
+      localStorage.setItem('fb-notified-messages', JSON.stringify([...notifiedMessages]));
+    }
+  }
+}, 60000); // Save every minute
 
 chrome.storage.sync.get(['webhookUrl', 'enabled'], (result) => {
   if (result.enabled !== false && result.webhookUrl) {
@@ -24,13 +50,8 @@ function init() {
     new MutationObserver(() => onTitleChange()).observe(titleEl, { childList: true, characterData: true, subtree: true });
   }
   
-  // Add back periodic scanning but less frequent (every 30 seconds)
-  setInterval(() => {
-    const now = Date.now();
-    if (now - lastScanTime > SCAN_COOLDOWN) {
-      scanForUnread();
-    }
-  }, 30000);
+  // Only use title change detection, remove periodic scanning to avoid duplicates
+  console.log('[FB Marketplace Notifier] Using title-change detection only');
 }
 
 function onTitleChange() {
@@ -46,9 +67,13 @@ function onTitleChange() {
   if (hasNewMessage) {
     console.log('[FB Marketplace Notifier] New message detected');
     const now = Date.now();
-    if (now - lastScanTime > SCAN_COOLDOWN) {
+    if (now - lastScanTime > SCAN_COOLDOWN && !scanInProgress) {
       lastScanTime = now;
-      setTimeout(scanForUnread, 500);
+      scanInProgress = true;
+      setTimeout(() => {
+        scanForUnread();
+        scanInProgress = false;
+      }, 500);
     }
   }
 }
@@ -66,14 +91,22 @@ function scanForUnread() {
     if (textContent.toLowerCase().includes('rate each other') ||
         textContent.toLowerCase().includes('you can now rate') ||
         textContent.toLowerCase().includes('marked as sold') ||
-        textContent.toLowerCase().includes('group photo')) {
+        textContent.toLowerCase().includes('group photo') ||
+        textContent.toLowerCase().includes('message sent')) {
       return;
     }
     
-    // Use link + first 100 chars as more stable ID
-    const id = link + '::' + textContent.slice(0, 100).replace(/\d+ minutes? ago/gi, '');
+    // Extract message content for better uniqueness
+    const messageMatch = textContent.match(/Unread message:([^:]+): (.+)/i);
+    const messageContent = messageMatch ? messageMatch[2] : textContent.slice(0, 100);
     
-    if (notifiedMessages.has(id)) return;
+    // Use link + message content hash as ID (more unique)
+    const id = link + '::' + messageContent.replace(/\d+ (minutes?|hours?|days?) ago/gi, '').trim();
+    
+    if (notifiedMessages.has(id)) {
+      console.log('[FB Marketplace Notifier] Already notified:', id.slice(0, 80));
+      return;
+    }
     
     const isUnread = (() => {
       const text = textContent.toLowerCase();
@@ -85,9 +118,14 @@ function scanForUnread() {
     })();
     
     if (isUnread) {
-      console.log('[FB Marketplace Notifier] Found unread:', id);
+      console.log('[FB Marketplace Notifier] Found unread:', id.slice(0, 80));
       notifiedMessages.add(id);
       sendNotification(conv);
+      
+      // Save immediately after adding new message
+      try {
+        localStorage.setItem('fb-notified-messages', JSON.stringify([...notifiedMessages]));
+      } catch (e) {}
     }
   });
 }
