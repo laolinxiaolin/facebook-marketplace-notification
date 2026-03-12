@@ -1,5 +1,5 @@
-// Removed periodic scanning - only use title-change detection to avoid duplicates
-// Title changes will trigger scans automatically when new messages arrive
+// FB Marketplace Notifier - Background Script
+// Handles webhook sending with cooldown and deduplication
 
 // Cooldown to prevent duplicate notifications (10 seconds)
 const COOLDOWN_MS = 10000;
@@ -16,7 +16,7 @@ function checkCooldown() {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('[FB Notifier] Extension installed - using title-change detection only');
+  console.log('[FB Notifier] Extension installed');
 });
 
 // Handle webhook sending from content script (avoids CORS restrictions)
@@ -31,12 +31,20 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     chrome.storage.sync.get(['webhookUrl', 'notificationType', 'enabled'], (result) => {
       if (result.enabled === false || !result.webhookUrl) {
         console.log('[FB Notifier] Disabled or no webhook URL');
+        sendResponse({ success: false, error: 'Disabled or no webhook' });
         return;
       }
 
       const webhookUrl = result.webhookUrl;
       const type = result.notificationType || 'openclaw';
-      const { sender: msgSender, message, url, timestamp } = request.data;
+      const { sender: msgSender, message, msgText, url, timestamp } = request.data;
+
+      // Validate required fields
+      if (!msgSender || !msgText) {
+        console.error('[FB Notifier] Missing sender or message:', request.data);
+        sendResponse({ success: false, error: 'Missing sender or message' });
+        return;
+      }
 
       // Extract token from URL if present, then use header auth
       let finalUrl = webhookUrl;
@@ -58,25 +66,27 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       let payload;
 
       if (webhookUrl.includes('discord.com') || type === 'discord') {
+        // Discord format - clean message
+        const cleanSender = msgSender || 'Unknown';
+        const cleanMessage = message || msgText || 'New message';
         payload = {
-          content: `**New Message from ${msgSender}**\n${message}\n\n${url}`
+          content: `**New Message from ${cleanSender}**\n${cleanMessage}\n\n${url}`
         };
       } else if (webhookUrl.includes('slack.com') || type === 'slack') {
         payload = {
           text: `New Message from ${msgSender}`,
-          attachments: [{ text: message }]
+          attachments: [{ text: message || msgText }]
         };
       } else if (webhookUrl.includes('/hooks/agent') || type === 'openclaw') {
-        // OpenClaw webhook format (silent - no response triggered)
+        // OpenClaw webhook format
         payload = {
-          message: `**New Facebook Marketplace Message**\n\n**From:** ${msgSender}\n**Message:** ${message}\n\n${url}`,
+          message: `**New Facebook Marketplace Message**\n\n**From:** ${msgSender}\n**Message:** ${message || msgText}\n\n${url}`,
           name: 'Marketplace-Alert'
-          // Removed wakeMode: 'now' to prevent automatic agent responses
         };
       } else {
         payload = {
           sender: msgSender,
-          message,
+          message: message || msgText,
           timestamp,
           source: 'facebook_messenger',
           url

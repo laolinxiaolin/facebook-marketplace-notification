@@ -1,10 +1,11 @@
-// FB Marketplace Notifier - Simplified Version
-// No duplicate detection, no periodic scanning - just title-change detection
+// FB Marketplace Notifier - Fixed Version
+// Proper parsing and deduplication
 
 let webhookUrl = null;
 let lastTitle = document.title;
 let lastScanTime = 0;
 const SCAN_COOLDOWN = 5000; // 5 seconds
+const sentMessages = new Set(); // Track sent message IDs
 
 chrome.storage.sync.get(['webhookUrl', 'enabled'], (result) => {
   if (result.enabled !== false && result.webhookUrl) {
@@ -29,6 +30,9 @@ function init() {
         subtree: true 
       });
   }
+  
+  // Clear sent messages cache every 5 minutes
+  setInterval(() => sentMessages.clear(), 5 * 60 * 1000);
 }
 
 function onTitleChange() {
@@ -50,6 +54,41 @@ function onTitleChange() {
   }
 }
 
+function parseMessage(textContent) {
+  // Format: "Name · Product Unread message: Name: Message snippet..."
+  // Or: "Name · Product You: ... Seen by..."
+  
+  // Extract sender name (before first ·)
+  const nameMatch = textContent.match(/^([^·]+)·/);
+  const sender = nameMatch ? nameMatch[1].trim() : 'Unknown';
+  
+  // Extract message snippet
+  let message = '';
+  
+  // Try "Unread message: Sender: message"
+  const unreadMatch = textContent.match(/Unread message:\s*([^:]+):\s*(.+?)(?:\s*\d|$)/i);
+  if (unreadMatch) {
+    message = unreadMatch[2].trim();
+  } else {
+    // Try to find text after last "·" before timestamp
+    const parts = textContent.split('·');
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const part = parts[i].trim();
+      if (part && !part.match(/^\d+[mhd]$/) && !part.includes('Seen by')) {
+        message = part;
+        break;
+      }
+    }
+  }
+  
+  return { sender, message: message || 'New message' };
+}
+
+function generateMessageId(sender, message) {
+  // Create a simple ID based on sender + first 50 chars of message
+  return `${sender}:${message.substring(0, 50)}`;
+}
+
 function scanForUnread() {
   if (!webhookUrl) return;
   
@@ -61,7 +100,13 @@ function scanForUnread() {
         textContent.toLowerCase().includes('you can now rate') ||
         textContent.toLowerCase().includes('marked as sold') ||
         textContent.toLowerCase().includes('group photo') ||
-        textContent.toLowerCase().includes('message sent')) {
+        textContent.toLowerCase().includes('message sent') ||
+        textContent.toLowerCase().includes('removed the item')) {
+      return;
+    }
+    
+    // Skip if we already responded (contains "You:")
+    if (textContent.includes('You:') || textContent.includes('You sent')) {
       return;
     }
     
@@ -77,12 +122,24 @@ function scanForUnread() {
     })();
     
     if (isUnread) {
-      console.log('[FB Marketplace Notifier] Found unread message, sending webhook');
+      const { sender, message } = parseMessage(textContent);
+      const messageId = generateMessageId(sender, message);
+      
+      // Skip if already sent
+      if (sentMessages.has(messageId)) {
+        console.log('[FB Marketplace Notifier] Skipping duplicate:', messageId);
+        return;
+      }
+      
+      sentMessages.add(messageId);
+      console.log('[FB Marketplace Notifier] Found unread from:', sender, '-', message.substring(0, 30));
       
       // Send to background script
       chrome.runtime.sendMessage({
         action: 'sendWebhook',
         data: {
+          sender: sender,
+          message: message,
           text: textContent,
           url: window.location.href,
           timestamp: new Date().toISOString()
