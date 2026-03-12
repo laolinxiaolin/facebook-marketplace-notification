@@ -1,6 +1,20 @@
 // Removed periodic scanning - only use title-change detection to avoid duplicates
 // Title changes will trigger scans automatically when new messages arrive
 
+// Cooldown to prevent duplicate notifications (10 seconds)
+const COOLDOWN_MS = 10000;
+let lastWebhookTime = 0;
+
+function checkCooldown() {
+  const now = Date.now();
+  if (now - lastWebhookTime < COOLDOWN_MS) {
+    console.log('[FB Notifier] Cooldown active - skipping duplicate');
+    return false;
+  }
+  lastWebhookTime = now;
+  return true;
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   console.log('[FB Notifier] Extension installed - using title-change detection only');
 });
@@ -8,6 +22,12 @@ chrome.runtime.onInstalled.addListener(() => {
 // Handle webhook sending from content script (avoids CORS restrictions)
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'sendWebhook') {
+    // Check cooldown to prevent duplicate notifications
+    if (!checkCooldown()) {
+      sendResponse({ success: true, skipped: 'cooldown' });
+      return true;
+    }
+
     chrome.storage.sync.get(['webhookUrl', 'notificationType', 'enabled'], (result) => {
       if (result.enabled === false || !result.webhookUrl) {
         console.log('[FB Notifier] Disabled or no webhook URL');
