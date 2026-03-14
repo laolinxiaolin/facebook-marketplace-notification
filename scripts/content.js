@@ -1,5 +1,5 @@
-// FB Marketplace Notifier - Notification Interception Version
-// Intercepts browser notifications to capture new messages instantly
+// FB Marketplace Notifier - Facebook Toast Notification Monitor
+// Watches for Facebook's in-page notification popups (toasts)
 
 let webhookUrl = null;
 const sentMessages = new Map(); // messageId -> timestamp
@@ -24,10 +24,13 @@ chrome.storage.onChanged.addListener((changes) => {
 });
 
 function init() {
-  console.log('[FB Marketplace Notifier] Started - Notification Interception Mode');
+  console.log('[FB Marketplace Notifier] Started - Toast Monitor Mode');
   
-  // Intercept Notification API
-  interceptNotifications();
+  // Watch for Facebook toast notifications
+  watchForToasts();
+  
+  // Also intercept browser notifications as backup
+  interceptBrowserNotifications();
   
   // Clean up old sent messages every minute
   setInterval(() => {
@@ -40,87 +43,194 @@ function init() {
   }, 60 * 1000);
 }
 
-function interceptNotifications() {
-  // Save original Notification constructor
-  const OriginalNotification = window.Notification;
+function watchForToasts() {
+  // Facebook toast notifications appear in specific containers
+  // Common patterns: role="alert", aria-live="polite", or specific toast layer classes
   
-  // Override Notification constructor
-  window.Notification = function(title, options = {}) {
-    console.log('[FB Notifier] Notification intercepted:', title, options.body);
-    
-    // Create the actual notification so user still sees it
-    const notification = new OriginalNotification(title, options);
-    
-    // Process the notification for our webhook
-    processNotification(title, options);
-    
-    return notification;
-  };
+  // Watch the entire body for new toast elements
+  const observer = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      for (const node of mutation.addedNodes) {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          checkForToastNotification(node);
+        }
+      }
+    }
+  });
   
-  // Copy static properties
-  window.Notification.permission = OriginalNotification.permission;
-  window.Notification.requestPermission = OriginalNotification.requestPermission.bind(OriginalNotification);
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true
+  });
   
-  // Also intercept notifications created via Service Worker (for when page is in background)
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.ready.then(registration => {
-      // Monkey-patch showNotification if possible
-      const originalShowNotification = registration.showNotification;
-      registration.showNotification = function(title, options) {
-        console.log('[FB Notifier] SW Notification intercepted:', title, options?.body);
-        processNotification(title, options || {});
-        return originalShowNotification.call(this, title, options);
-      };
-    }).catch(err => console.log('[FB Notifier] SW interception skipped:', err));
-  }
+  console.log('[FB Notifier] Toast observer installed');
 }
 
-function processNotification(title, options) {
+function checkForToastNotification(element) {
   if (!webhookUrl) return;
   
-  // Only process Facebook/Messenger related notifications
-  const isFacebook = window.location.hostname.includes('facebook.com') ||
-                     window.location.hostname.includes('messenger.com') ||
-                     (options.icon && options.icon.includes('facebook')) ||
-                     (options.tag && options.tag.includes('messenger'));
-  
-  if (!isFacebook) return;
-  
-  // Skip non-message notifications
-  const skipPatterns = [
-    'friend request',
-    'suggested for you',
-    'people you may know',
-    'birthday',
-    'event',
-    'reminder',
-    'liked your',
-    'commented on',
-    'shared'
+  // Facebook toast patterns to check
+  const toastSelectors = [
+    '[role="alert"]',
+    '[aria-live="polite"]',
+    '[data-visualcompletion="ignore-dynamic"]', // Toast container
+    '.toast', // Generic toast class
+    '[class*="toast"]',
+    '[class*="notification"]',
+    '[class*="snackbar"]'
   ];
   
-  const lowerTitle = (title || '').toLowerCase();
-  const lowerBody = (options.body || '').toLowerCase();
-  
-  for (const pattern of skipPatterns) {
-    if (lowerTitle.includes(pattern) || lowerBody.includes(pattern)) {
-      console.log('[FB Notifier] Skipping non-message notification:', pattern);
+  // Check if element is a toast
+  let isToast = false;
+  for (const selector of toastSelectors) {
+    if (element.matches && element.matches(selector)) {
+      isToast = true;
+      break;
+    }
+    if (element.querySelector && element.querySelector(selector)) {
+      // Check children too
+      const toasts = element.querySelectorAll(selector);
+      toasts.forEach(toast => processToast(toast));
       return;
     }
   }
   
-  // Extract sender and message
-  // Format is usually: sender name in title, message preview in body
-  let sender = title || 'Unknown';
-  let message = options.body || 'New message';
-  
-  // Handle "Name sent you a message" format
-  const sentMatch = sender.match(/^(.+?)\s+(?:sent you a message|messaged you)/i);
-  if (sentMatch) {
-    sender = sentMatch[1];
+  if (isToast) {
+    processToast(element);
   }
   
-  // Create unique ID to prevent duplicates
+  // Also check if this is a message notification popup
+  // Facebook shows message previews in the corner
+  const text = element.textContent || '';
+  if (text.includes('messaged you') || 
+      text.includes('sent you a message') ||
+      text.includes('new message') ||
+      /^[A-Z][a-z]+\s/.test(text)) {
+    // Might be a notification, check more closely
+    processPossibleMessageNotification(element);
+  }
+}
+
+function processToast(toast) {
+  const text = toast.textContent || '';
+  console.log('[FB Notifier] Toast detected:', text.substring(0, 100));
+  
+  // Skip non-message toasts
+  const skipPatterns = [
+    'sent you a friend request',
+    'liked your',
+    'commented on',
+    'shared a',
+    'is live',
+    'updated their',
+    'added a new',
+    'friend suggestion',
+    'people you may know',
+    'suggested for you',
+    'on this day',
+    'memory'
+  ];
+  
+  const lowerText = text.toLowerCase();
+  for (const pattern of skipPatterns) {
+    if (lowerText.includes(pattern)) {
+      console.log('[FB Notifier] Skipping non-message toast:', pattern);
+      return;
+    }
+  }
+  
+  // Look for message-related patterns
+  if (lowerText.includes('message') || 
+      lowerText.includes('messaged') ||
+      lowerText.includes('replied')) {
+    extractAndSendFromToast(toast, text);
+  }
+}
+
+function processPossibleMessageNotification(element) {
+  if (!webhookUrl) return;
+  
+  const text = element.textContent || '';
+  
+  // Try to extract sender name - usually first capitalized word(s)
+  let sender = 'Unknown';
+  let message = 'New message';
+  
+  // Pattern: "John Doe messaged you" or "John Doe: Hey there"
+  const nameMessageMatch = text.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)[:\s]+(.+?)(?:\s*·|\s*\d+|\s*$)/);
+  if (nameMessageMatch) {
+    sender = nameMessageMatch[1];
+    message = nameMessageMatch[2] || 'New message';
+  } else {
+    // Pattern: "John Doe sent you a message"
+    const sentMatch = text.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+sent\s+you\s+a\s+message/i);
+    if (sentMatch) {
+      sender = sentMatch[1];
+    }
+  }
+  
+  sendMessage(sender, message);
+}
+
+function extractAndSendFromToast(toast, text) {
+  // Clean up text
+  const cleanText = text.replace(/\s+/g, ' ').trim();
+  
+  let sender = 'Unknown';
+  let message = 'New message';
+  
+  // Try multiple extraction patterns
+  
+  // Pattern 1: "Name: Message content"
+  const colonMatch = cleanText.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s*:\s*(.+?)(?:\s+·|\s+\d|\s*$)/);
+  if (colonMatch) {
+    sender = colonMatch[1];
+    message = colonMatch[2];
+  }
+  
+  // Pattern 2: "Name sent you a message"
+  if (sender === 'Unknown') {
+    const sentMatch = cleanText.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+sent\s+you\s+a\s+message/i);
+    if (sentMatch) {
+      sender = sentMatch[1];
+    }
+  }
+  
+  // Pattern 3: "Name messaged you"
+  if (sender === 'Unknown') {
+    const msgMatch = cleanText.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+messaged\s+you/i);
+    if (msgMatch) {
+      sender = msgMatch[1];
+    }
+  }
+  
+  sendMessage(sender, message);
+}
+
+function interceptBrowserNotifications() {
+  // Also intercept browser notifications as backup
+  const OriginalNotification = window.Notification;
+  
+  window.Notification = function(title, options = {}) {
+    console.log('[FB Notifier] Browser notification intercepted:', title);
+    
+    const notification = new OriginalNotification(title, options);
+    
+    // Process it
+    if (title && options.body) {
+      sendMessage(title, options.body);
+    }
+    
+    return notification;
+  };
+  
+  window.Notification.permission = OriginalNotification.permission;
+  window.Notification.requestPermission = OriginalNotification.requestPermission.bind(OriginalNotification);
+}
+
+function sendMessage(sender, message) {
+  if (!webhookUrl) return;
+  
   const msgId = `${sender}:${message.substring(0, 50)}`;
   const now = Date.now();
   
@@ -130,19 +240,14 @@ function processNotification(title, options) {
   }
   
   sentMessages.set(msgId, now);
-  console.log('[FB Notifier] Sending webhook for:', sender, '-', message.substring(0, 30));
+  console.log('[FB Notifier] Sending webhook:', sender, '-', message.substring(0, 30));
   
-  // Get Messenger URL if possible
-  const messengerUrl = options.data?.url || 
-                       (options.tag?.includes('messenger') ? 'https://www.facebook.com/messages/t/' : window.location.href);
-  
-  // Send to background script
   chrome.runtime.sendMessage({
     action: 'sendWebhook',
     data: {
       sender: sender,
       message: message,
-      url: messengerUrl,
+      url: window.location.href,
       timestamp: new Date().toISOString()
     }
   });
