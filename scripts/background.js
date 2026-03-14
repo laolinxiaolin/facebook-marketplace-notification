@@ -60,10 +60,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       
       console.log('[FB Notifier BG] ===== WEBHOOK =====');
       console.log('[FB Notifier BG] Time:', logEntry.timestamp);
+      console.log('[FB Notifier BG] Target URL:', webhookUrl);
       console.log('[FB Notifier BG] From:', sender);
       console.log('[FB Notifier BG] Message:', message);
-      console.log('[FB Notifier BG] URL:', url);
+      console.log('[FB Notifier BG] Source URL:', url);
       console.log('[FB Notifier BG] Payload:', JSON.stringify(payload, null, 2));
+      console.log('[FB Notifier BG] Headers:', JSON.stringify(headers, null, 2));
       console.log('[FB Notifier BG] ===================');
       
       // Store in local log
