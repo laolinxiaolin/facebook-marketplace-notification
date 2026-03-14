@@ -1,7 +1,9 @@
-// FB Marketplace Notifier - No Duplicate Detection
+// FB Marketplace Notifier - With Cooldown
 // Watches for Facebook's in-page notification popups (toasts)
 
 let webhookUrl = null;
+let lastSendTime = 0;
+const COOLDOWN_MS = 5000; // 5 seconds between sends
 
 // Load settings
 chrome.storage.sync.get(['webhookUrl', 'enabled'], (result) => {
@@ -22,7 +24,7 @@ chrome.storage.onChanged.addListener((changes) => {
 });
 
 function init() {
-  console.log('[FB Marketplace Notifier] Started - Toast Monitor Mode (no dedup)');
+  console.log('[FB Marketplace Notifier] Started - Toast Monitor Mode (5s cooldown)');
   
   // Watch for Facebook toast notifications
   watchForToasts();
@@ -203,6 +205,14 @@ function interceptBrowserNotifications() {
 
 function sendMessage(sender, message) {
   if (!webhookUrl) return;
+  
+  // Check cooldown
+  const now = Date.now();
+  if (now - lastSendTime < COOLDOWN_MS) {
+    console.log('[FB Notifier] Cooldown active - skipping');
+    return;
+  }
+  lastSendTime = now;
   
   console.log('[FB Notifier] Sending webhook:', sender, '-', message.substring(0, 30));
   
