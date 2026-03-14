@@ -52,9 +52,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         };
       }
 
+      // Build headers - add Authorization for OpenClaw
+      const headers = { 'Content-Type': 'application/json' };
+      if (webhookUrl.includes('/hooks/agent') || type === 'openclaw') {
+        headers['Authorization'] = 'Bearer 37621369dd8e1a85db6b3e9827b8081bb1bc4c3f27b4026e';
+      }
+
       fetch(webhookUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(payload)
       }).then(res => {
         console.log('[FB Notifier] Sent:', res.status);
