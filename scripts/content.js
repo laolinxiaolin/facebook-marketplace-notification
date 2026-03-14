@@ -86,10 +86,8 @@ function checkForToastNotification(element) {
   
   // Also check if this is a message notification popup
   const text = element.textContent || '';
-  if (text.includes('messaged you') || 
-      text.includes('sent you a message') ||
-      text.includes('new message') ||
-      /^[A-Z][a-z]+\s/.test(text)) {
+  if (text.includes('sent you a message') || 
+      text.includes('messaged you')) {
     processPossibleMessageNotification(element);
   }
 }
@@ -111,7 +109,8 @@ function processToast(toast) {
     'people you may know',
     'suggested for you',
     'on this day',
-    'memory'
+    'memory',
+    'you approved a login'
   ];
   
   const lowerText = text.toLowerCase();
@@ -122,66 +121,64 @@ function processToast(toast) {
     }
   }
   
-  // Look for message-related patterns
-  if (lowerText.includes('message') || 
-      lowerText.includes('messaged') ||
-      lowerText.includes('replied')) {
-    extractAndSendFromToast(toast, text);
+  // Only process message-related toasts
+  if (lowerText.includes('sent you a message') || 
+      lowerText.includes('messaged you')) {
+    extractAndSendFromToast(text);
   }
 }
 
 function processPossibleMessageNotification(element) {
   if (!webhookUrl) return;
-  
   const text = element.textContent || '';
-  
-  let sender = 'Unknown';
-  let message = 'New message';
-  
-  const nameMessageMatch = text.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)[:\s]+(.+?)(?:\s*·|\s*\d+|\s*$)/);
-  if (nameMessageMatch) {
-    sender = nameMessageMatch[1];
-    message = nameMessageMatch[2] || 'New message';
-  } else {
-    const sentMatch = text.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+sent\s+you\s+a\s+message/i);
-    if (sentMatch) {
-      sender = sentMatch[1];
-    }
-  }
-  
-  sendMessage(sender, message);
+  extractAndSendFromToast(text);
 }
 
-function extractAndSendFromToast(toast, text) {
-  const cleanText = text.replace(/\s+/g, ' ').trim();
+function extractAndSendFromToast(text) {
+  // Clean up text - remove "Unread" prefix and extra whitespace
+  let cleanText = text.replace(/^Unread\s*/i, '').replace(/\s+/g, ' ').trim();
   
   let sender = 'Unknown';
   let message = 'New message';
   
-  // Pattern 1: "Name: Message content"
-  const colonMatch = cleanText.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s*:\s*(.+?)(?:\s+·|\s+\d|\s*$)/);
-  if (colonMatch) {
-    sender = colonMatch[1];
-    message = colonMatch[2];
+  // Pattern 1: "Name sent you a message about your Marketplace listing: Product Name"
+  const marketplaceMatch = cleanText.match(/^([A-Z][a-zA-Z\s]+?)\s+sent you a message about your Marketplace listing:\s*(.+?)(?:\s+\d+[mhd]|\s*$)/i);
+  if (marketplaceMatch) {
+    sender = marketplaceMatch[1].trim();
+    message = `Marketplace inquiry: ${marketplaceMatch[2].trim()}`;
+    sendMessage(sender, message);
+    return;
   }
   
   // Pattern 2: "Name sent you a message"
-  if (sender === 'Unknown') {
-    const sentMatch = cleanText.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+sent\s+you\s+a\s+message/i);
-    if (sentMatch) {
-      sender = sentMatch[1];
-    }
+  const sentMatch = cleanText.match(/^([A-Z][a-zA-Z\s]+?)\s+sent\s+you\s+a\s+message/i);
+  if (sentMatch) {
+    sender = sentMatch[1].trim();
+    sendMessage(sender, message);
+    return;
   }
   
   // Pattern 3: "Name messaged you"
-  if (sender === 'Unknown') {
-    const msgMatch = cleanText.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+messaged\s+you/i);
-    if (msgMatch) {
-      sender = msgMatch[1];
-    }
+  const msgMatch = cleanText.match(/^([A-Z][a-zA-Z\s]+?)\s+messaged\s+you/i);
+  if (msgMatch) {
+    sender = msgMatch[1].trim();
+    sendMessage(sender, message);
+    return;
   }
   
-  sendMessage(sender, message);
+  // Pattern 4: "Name: Message content"
+  const colonMatch = cleanText.match(/^([A-Z][a-zA-Z\s]+?)\s*:\s*(.+?)(?:\s+·|\s+\d|\s*$)/);
+  if (colonMatch) {
+    sender = colonMatch[1].trim();
+    message = colonMatch[2].trim();
+    sendMessage(sender, message);
+    return;
+  }
+  
+  // If we got here but the text mentions message, it's probably valid - send with Unknown
+  if (cleanText.toLowerCase().includes('message')) {
+    sendMessage('Unknown', cleanText.substring(0, 100));
+  }
 }
 
 function interceptBrowserNotifications() {
