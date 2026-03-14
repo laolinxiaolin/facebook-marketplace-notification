@@ -1,4 +1,4 @@
-// FB Marketplace Notifier - With Cooldown
+// FB Marketplace Notifier - With Cooldown and Self-Reply Filter
 // Watches for Facebook's in-page notification popups (toasts)
 
 let webhookUrl = null;
@@ -16,7 +16,7 @@ chrome.storage.sync.get(['webhookUrl', 'enabled'], (result) => {
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.webhookUrl) webhookUrl = changes.webhookUrl.newValue;
   if (changes.enabled && changes.enabled.newValue === false) webhookUrl = null;
-  if (changes.enabled && changes.enabled.newValue === true) {
+  if (changes.enabled && changes.enabled.newValue === True) {
     chrome.storage.sync.get(['webhookUrl'], (result) => {
       webhookUrl = result.webhookUrl;
     });
@@ -24,7 +24,7 @@ chrome.storage.onChanged.addListener((changes) => {
 });
 
 function init() {
-  console.log('[FB Marketplace Notifier] Started - Toast Monitor Mode (5s cooldown)');
+  console.log('[FB Marketplace Notifier] Started - Toast Monitor Mode');
   
   // Watch for Facebook toast notifications
   watchForToasts();
@@ -96,8 +96,13 @@ function processToast(toast) {
   const text = toast.textContent || '';
   console.log('[FB Notifier] Toast detected:', text.substring(0, 100));
   
-  // Skip non-message toasts
+  // Skip non-message toasts and our own messages
   const skipPatterns = [
+    'you sent',
+    'sent,',
+    'sent:',
+    'you replied',
+    'your reply',
     'sent you a friend request',
     'liked your',
     'commented on',
@@ -116,12 +121,12 @@ function processToast(toast) {
   const lowerText = text.toLowerCase();
   for (const pattern of skipPatterns) {
     if (lowerText.includes(pattern)) {
-      console.log('[FB Notifier] Skipping non-message toast:', pattern);
+      console.log('[FB Notifier] Skipping:', pattern);
       return;
     }
   }
   
-  // Only process message-related toasts
+  // Only process incoming message toasts
   if (lowerText.includes('sent you a message') || 
       lowerText.includes('messaged you')) {
     extractAndSendFromToast(text);
@@ -131,12 +136,24 @@ function processToast(toast) {
 function processPossibleMessageNotification(element) {
   if (!webhookUrl) return;
   const text = element.textContent || '';
+  
+  // Skip our own messages
+  if (text.toLowerCase().includes('you sent')) {
+    return;
+  }
+  
   extractAndSendFromToast(text);
 }
 
 function extractAndSendFromToast(text) {
   // Clean up text - remove "Unread" prefix and extra whitespace
   let cleanText = text.replace(/^Unread\s*/i, '').replace(/\s+/g, ' ').trim();
+  
+  // Skip if this is our own message
+  if (cleanText.toLowerCase().startsWith('you sent')) {
+    console.log('[FB Notifier] Skipping own message');
+    return;
+  }
   
   let sender = 'Unknown';
   let message = 'New message';
@@ -188,6 +205,11 @@ function interceptBrowserNotifications() {
     console.log('[FB Notifier] Browser notification intercepted:', title);
     
     const notification = new OriginalNotification(title, options);
+    
+    // Skip our own notifications
+    if (title && title.toLowerCase().includes('you sent')) {
+      return notification;
+    }
     
     if (title && options.body) {
       sendMessage(title, options.body);
