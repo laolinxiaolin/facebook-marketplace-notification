@@ -1,8 +1,5 @@
 // FB Marketplace Notifier - Background Script
-// Simple webhook sender with cooldown
-
-const COOLDOWN_MS = 10000; // 10 seconds
-let lastWebhookTime = 0;
+// Receives messages from content script and sends webhooks
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log('[FB Notifier] Extension installed');
@@ -11,15 +8,6 @@ chrome.runtime.onInstalled.addListener(() => {
 // Handle webhook sending from content script
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'sendWebhook') {
-    // Check cooldown
-    const now = Date.now();
-    if (now - lastWebhookTime < COOLDOWN_MS) {
-      console.log('[FB Notifier] Cooldown active - skipping');
-      sendResponse({ success: true, skipped: 'cooldown' });
-      return true;
-    }
-    lastWebhookTime = now;
-
     chrome.storage.sync.get(['webhookUrl', 'notificationType', 'enabled'], (result) => {
       if (result.enabled === false || !result.webhookUrl) {
         console.log('[FB Notifier] Disabled or no webhook URL');
@@ -58,15 +46,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         headers['Authorization'] = 'Bearer 37621369dd8e1a85db6b3e9827b8081bb1bc4c3f27b4026e';
       }
 
+      console.log('[FB Notifier BG] Sending to:', webhookUrl);
+      
       fetch(webhookUrl, {
         method: 'POST',
         headers,
         body: JSON.stringify(payload)
       }).then(res => {
-        console.log('[FB Notifier] Sent:', res.status);
+        console.log('[FB Notifier BG] Response:', res.status);
         sendResponse({ success: res.ok });
       }).catch(err => {
-        console.error('[FB Notifier] Error:', err.message);
+        console.error('[FB Notifier BG] Error:', err.message);
         sendResponse({ success: false, error: err.message });
       });
     });
