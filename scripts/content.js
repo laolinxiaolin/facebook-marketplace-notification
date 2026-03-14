@@ -1,9 +1,7 @@
-// FB Marketplace Notifier - Facebook Toast Notification Monitor
+// FB Marketplace Notifier - No Duplicate Detection
 // Watches for Facebook's in-page notification popups (toasts)
 
 let webhookUrl = null;
-const sentMessages = new Map(); // messageId -> timestamp
-const MESSAGE_EXPIRY = 10 * 60 * 1000; // 10 minutes
 
 // Load settings
 chrome.storage.sync.get(['webhookUrl', 'enabled'], (result) => {
@@ -24,29 +22,16 @@ chrome.storage.onChanged.addListener((changes) => {
 });
 
 function init() {
-  console.log('[FB Marketplace Notifier] Started - Toast Monitor Mode');
+  console.log('[FB Marketplace Notifier] Started - Toast Monitor Mode (no dedup)');
   
   // Watch for Facebook toast notifications
   watchForToasts();
   
   // Also intercept browser notifications as backup
   interceptBrowserNotifications();
-  
-  // Clean up old sent messages every minute
-  setInterval(() => {
-    const now = Date.now();
-    for (const [id, time] of sentMessages) {
-      if (now - time > MESSAGE_EXPIRY) {
-        sentMessages.delete(id);
-      }
-    }
-  }, 60 * 1000);
 }
 
 function watchForToasts() {
-  // Facebook toast notifications appear in specific containers
-  // Common patterns: role="alert", aria-live="polite", or specific toast layer classes
-  
   // Watch the entire body for new toast elements
   const observer = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
@@ -73,8 +58,7 @@ function checkForToastNotification(element) {
   const toastSelectors = [
     '[role="alert"]',
     '[aria-live="polite"]',
-    '[data-visualcompletion="ignore-dynamic"]', // Toast container
-    '.toast', // Generic toast class
+    '[data-visualcompletion="ignore-dynamic"]',
     '[class*="toast"]',
     '[class*="notification"]',
     '[class*="snackbar"]'
@@ -88,7 +72,6 @@ function checkForToastNotification(element) {
       break;
     }
     if (element.querySelector && element.querySelector(selector)) {
-      // Check children too
       const toasts = element.querySelectorAll(selector);
       toasts.forEach(toast => processToast(toast));
       return;
@@ -100,13 +83,11 @@ function checkForToastNotification(element) {
   }
   
   // Also check if this is a message notification popup
-  // Facebook shows message previews in the corner
   const text = element.textContent || '';
   if (text.includes('messaged you') || 
       text.includes('sent you a message') ||
       text.includes('new message') ||
       /^[A-Z][a-z]+\s/.test(text)) {
-    // Might be a notification, check more closely
     processPossibleMessageNotification(element);
   }
 }
@@ -152,17 +133,14 @@ function processPossibleMessageNotification(element) {
   
   const text = element.textContent || '';
   
-  // Try to extract sender name - usually first capitalized word(s)
   let sender = 'Unknown';
   let message = 'New message';
   
-  // Pattern: "John Doe messaged you" or "John Doe: Hey there"
   const nameMessageMatch = text.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)[:\s]+(.+?)(?:\s*·|\s*\d+|\s*$)/);
   if (nameMessageMatch) {
     sender = nameMessageMatch[1];
     message = nameMessageMatch[2] || 'New message';
   } else {
-    // Pattern: "John Doe sent you a message"
     const sentMatch = text.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+sent\s+you\s+a\s+message/i);
     if (sentMatch) {
       sender = sentMatch[1];
@@ -173,13 +151,10 @@ function processPossibleMessageNotification(element) {
 }
 
 function extractAndSendFromToast(toast, text) {
-  // Clean up text
   const cleanText = text.replace(/\s+/g, ' ').trim();
   
   let sender = 'Unknown';
   let message = 'New message';
-  
-  // Try multiple extraction patterns
   
   // Pattern 1: "Name: Message content"
   const colonMatch = cleanText.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s*:\s*(.+?)(?:\s+·|\s+\d|\s*$)/);
@@ -208,7 +183,6 @@ function extractAndSendFromToast(toast, text) {
 }
 
 function interceptBrowserNotifications() {
-  // Also intercept browser notifications as backup
   const OriginalNotification = window.Notification;
   
   window.Notification = function(title, options = {}) {
@@ -216,7 +190,6 @@ function interceptBrowserNotifications() {
     
     const notification = new OriginalNotification(title, options);
     
-    // Process it
     if (title && options.body) {
       sendMessage(title, options.body);
     }
@@ -231,15 +204,6 @@ function interceptBrowserNotifications() {
 function sendMessage(sender, message) {
   if (!webhookUrl) return;
   
-  const msgId = `${sender}:${message.substring(0, 50)}`;
-  const now = Date.now();
-  
-  if (sentMessages.has(msgId)) {
-    console.log('[FB Notifier] Skipping duplicate:', msgId);
-    return;
-  }
-  
-  sentMessages.set(msgId, now);
   console.log('[FB Notifier] Sending webhook:', sender, '-', message.substring(0, 30));
   
   chrome.runtime.sendMessage({
