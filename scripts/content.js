@@ -97,10 +97,9 @@ function processToast(toast) {
   console.log('[FB Notifier] Toast detected:', text.substring(0, 100));
   
   // Skip non-message toasts and our own messages
+  // Note: Only skip patterns that clearly indicate OUR outgoing messages
   const skipPatterns = [
     'you sent',
-    'sent,',
-    'sent:',
     'you replied',
     'your reply',
     'sent you a friend request',
