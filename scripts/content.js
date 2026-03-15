@@ -24,13 +24,80 @@ chrome.storage.onChanged.addListener((changes) => {
 });
 
 function init() {
-  console.log('[FB Marketplace Notifier] Started - Toast Monitor Mode');
+  console.log('[FB Marketplace Notifier] Started - Title + Toast Monitor Mode');
   
-  // Watch for Facebook toast notifications
+  // Watch for Facebook toast notifications (legacy)
   watchForToasts();
+  
+  // Watch for page title changes (primary detection method now)
+  watchTitleChanges();
   
   // Also intercept browser notifications as backup
   interceptBrowserNotifications();
+}
+
+// Track last title state to detect changes
+let lastTitleCount = 0;
+let lastTitle = '';
+
+function watchTitleChanges() {
+  // Check title periodically for changes
+  setInterval(() => {
+    const title = document.title;
+    if (title === lastTitle) return;
+    lastTitle = title;
+    
+    // Extract notification count from title like "(3) Messenger" or "(1) Facebook"
+    const match = title.match(/^\((\d+)\)/);
+    if (match) {
+      const count = parseInt(match[1], 10);
+      if (count > lastTitleCount) {
+        console.log('[FB Notifier] Title change detected:', title, '- new messages:', count - lastTitleCount);
+        // Notification count increased - new message(s)
+        onNewMessageDetected();
+      }
+      lastTitleCount = count;
+    } else {
+      // No count in title - reset to 0
+      if (lastTitleCount > 0) {
+        console.log('[FB Notifier] Title cleared - messages read');
+      }
+      lastTitleCount = 0;
+    }
+  }, 1000); // Check every second
+  
+  console.log('[FB Notifier] Title watcher started');
+}
+
+function onNewMessageDetected() {
+  if (!webhookUrl) return;
+  
+  console.log('[FB Notifier] New message detected via title change');
+  
+  // Try to find unread message indicators in the page
+  // Look for elements with aria-label indicating unread messages
+  const unreadIndicators = document.querySelectorAll('[aria-label*="unread"], [aria-label*="Unread"], [data-testid*="unread"]');
+  
+  if (unreadIndicators.length > 0) {
+    console.log('[FB Notifier] Found unread indicators:', unreadIndicators.length);
+  }
+  
+  // Look for the messenger icon badge or notification dots
+  const badge = document.querySelector('[aria-label*="Messenger"][aria-label*="notification"], [aria-label*="message request"]');
+  if (badge) {
+    const badgeText = badge.getAttribute('aria-label') || '';
+    console.log('[FB Notifier] Badge found:', badgeText);
+  }
+  
+  // Look for active conversation with unread indicator
+  const activeChats = document.querySelectorAll('[role="listitem"][aria-label*="unread"], [role="row"][aria-label*="unread"]');
+  for (const chat of activeChats) {
+    const chatText = chat.textContent || '';
+    console.log('[FB Notifier] Unread chat:', chatText.substring(0, 100));
+  }
+  
+  // Send a generic notification - user should check Facebook
+  sendMessage('New Message', 'You have a new message on Facebook. Check your inbox.');
 }
 
 function watchForToasts() {
@@ -123,9 +190,17 @@ function processToast(toast) {
     className: className.substring(0, 50)
   });
   
-  // NEW: Handle SVG elements with aria-label (Facebook's new notification style)
+  // NEW: Handle SVG elements with aria-label (Facebook's notification style)
   // These contain sender names but we need to find the message in parent/child elements
+  // IMPORTANT: Skip SVGs that are just chat list avatars (very common)
   if (toast.tagName === 'SVG' && ariaLabel) {
+    // Skip if this SVG is in the chat list sidebar (not a real notification)
+    const chatListContainer = toast.closest('[role="list"], [role="grid"], [aria-label*="Chats"], [aria-label*="Conversations"]');
+    if (chatListContainer) {
+      // This is just the chat list, not a new notification
+      return;
+    }
+    
     console.log('[FB Notifier] SVG notification detected, sender:', ariaLabel);
     
     // Walk up the DOM to find notification container with more text
