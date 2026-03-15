@@ -97,13 +97,30 @@ function processToast(toast) {
   const innerText = toast.innerText || '';
   const ariaLabel = toast.getAttribute('aria-label') || '';
   
+  // Safely get className (may be DOMTokenList or SVGAnimatedString)
+  let className = '';
+  try {
+    className = (toast.className && typeof toast.className === 'string') 
+      ? toast.className 
+      : (toast.className && toast.className.baseVal) 
+        ? toast.className.baseVal 
+        : String(toast.className || '');
+  } catch (e) {
+    className = 'error-getting-class';
+  }
+  
+  // Skip if all text sources are empty - not a real notification
+  if (!text && !innerText && !ariaLabel) {
+    return;
+  }
+  
   // Log all possible text sources for debugging
   console.log('[FB Notifier] Toast detected:', {
     textContent: text.substring(0, 100),
     innerText: innerText.substring(0, 100),
     ariaLabel: ariaLabel.substring(0, 100),
     tagName: toast.tagName,
-    className: toast.className.substring(0, 50)
+    className: className.substring(0, 50)
   });
   
   // Skip non-message toasts and our own messages
