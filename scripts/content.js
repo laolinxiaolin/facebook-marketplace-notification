@@ -123,6 +123,32 @@ function processToast(toast) {
     className: className.substring(0, 50)
   });
   
+  // NEW: Handle SVG elements with aria-label (Facebook's new notification style)
+  // These contain sender names but we need to find the message in parent/child elements
+  if (toast.tagName === 'SVG' && ariaLabel) {
+    console.log('[FB Notifier] SVG notification detected, sender:', ariaLabel);
+    
+    // Walk up the DOM to find notification container with more text
+    let parent = toast.parentElement;
+    let attempts = 0;
+    while (parent && attempts < 5) {
+      const parentText = parent.textContent || parent.innerText || '';
+      console.log('[FB Notifier] Parent level', attempts, 'text:', parentText.substring(0, 200));
+      
+      if (parentText.length > ariaLabel.length) {
+        // Found more context - extract message info
+        extractAndSendFromToast(parentText);
+        return;
+      }
+      parent = parent.parentElement;
+      attempts++;
+    }
+    
+    // If no parent text found, just send the sender name as notification
+    sendMessage(ariaLabel, 'New message (check Facebook for details)');
+    return;
+  }
+  
   // Skip non-message toasts and our own messages
   // Note: Only skip patterns that clearly indicate OUR outgoing messages
   const skipPatterns = [
