@@ -94,7 +94,17 @@ function checkForToastNotification(element) {
 
 function processToast(toast) {
   const text = toast.textContent || '';
-  console.log('[FB Notifier] Toast detected:', text.substring(0, 100));
+  const innerText = toast.innerText || '';
+  const ariaLabel = toast.getAttribute('aria-label') || '';
+  
+  // Log all possible text sources for debugging
+  console.log('[FB Notifier] Toast detected:', {
+    textContent: text.substring(0, 100),
+    innerText: innerText.substring(0, 100),
+    ariaLabel: ariaLabel.substring(0, 100),
+    tagName: toast.tagName,
+    className: toast.className.substring(0, 50)
+  });
   
   // Skip non-message toasts and our own messages
   // Note: Only skip patterns that clearly indicate OUR outgoing messages
@@ -127,8 +137,21 @@ function processToast(toast) {
   
   // Only process incoming message toasts
   if (lowerText.includes('sent you a message') || 
-      lowerText.includes('messaged you')) {
+      lowerText.includes('messaged you') ||
+      lowerText.includes('sent,') ||
+      lowerText.includes('new message')) {
     extractAndSendFromToast(text);
+  }
+  
+  // Also check innerText and ariaLabel
+  const lowerInnerText = innerText.toLowerCase();
+  const lowerAria = ariaLabel.toLowerCase();
+  
+  if (lowerInnerText.includes('sent you a message') || 
+      lowerInnerText.includes('messaged you') ||
+      lowerAria.includes('sent you a message') ||
+      lowerAria.includes('messaged you')) {
+    extractAndSendFromToast(innerText || ariaLabel);
   }
 }
 
