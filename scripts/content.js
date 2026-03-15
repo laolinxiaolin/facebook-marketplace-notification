@@ -38,32 +38,50 @@ function init() {
 
 // Track last title state to detect changes
 let lastTitleCount = 0;
-let lastTitle = '';
+let lastNotifyCount = 0;  // The count we last sent a notification for
+let titleChangeDebounce = null;
 
 function watchTitleChanges() {
   // Check title periodically for changes
   setInterval(() => {
     const title = document.title;
-    if (title === lastTitle) return;
-    lastTitle = title;
     
     // Extract notification count from title like "(3) Messenger" or "(1) Facebook"
     const match = title.match(/^\((\d+)\)/);
-    if (match) {
-      const count = parseInt(match[1], 10);
-      if (count > lastTitleCount) {
-        console.log('[FB Notifier] Title change detected:', title, '- new messages:', count - lastTitleCount);
-        // Notification count increased - new message(s)
-        onNewMessageDetected();
+    const currentCount = match ? parseInt(match[1], 10) : 0;
+    
+    // Count increased from 0 or from previously read state
+    if (currentCount > lastTitleCount && currentCount > lastNotifyCount) {
+      console.log('[FB Notifier] Title change detected:', title, '- new messages:', currentCount);
+      
+      // Clear any pending debounce
+      if (titleChangeDebounce) {
+        clearTimeout(titleChangeDebounce);
       }
-      lastTitleCount = count;
-    } else {
-      // No count in title - reset to 0
-      if (lastTitleCount > 0) {
-        console.log('[FB Notifier] Title cleared - messages read');
-      }
-      lastTitleCount = 0;
+      
+      // Debounce: wait 2 seconds of stable count before notifying
+      // This prevents spam during title blinking
+      titleChangeDebounce = setTimeout(() => {
+        // Double-check the count is still elevated
+        const currentMatch = document.title.match(/^\((\d+)\)/);
+        const verifyCount = currentMatch ? parseInt(currentMatch[1], 10) : 0;
+        
+        if (verifyCount > lastNotifyCount) {
+          console.log('[FB Notifier] Confirmed new messages:', verifyCount);
+          lastNotifyCount = verifyCount;
+          onNewMessageDetected();
+        }
+        titleChangeDebounce = null;
+      }, 2000);
     }
+    
+    // Count went back to 0 - user read messages, reset for next notification
+    if (currentCount === 0 && lastNotifyCount > 0) {
+      console.log('[FB Notifier] Messages read, resetting notification tracker');
+      lastNotifyCount = 0;
+    }
+    
+    lastTitleCount = currentCount;
   }, 1000); // Check every second
   
   console.log('[FB Notifier] Title watcher started');
